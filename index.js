@@ -33,6 +33,7 @@ async function init() {
         logger.warn('初始化配置失败');
     }
 }
+
 async function initFile(file) {
     try {
         let exists = await fse.pathExists(`${dir}/${file}`);
@@ -47,6 +48,9 @@ async function initFile(file) {
         logger.warn(`${file} 初始化失败`);
     }
 }
+
+
+
 function load(file) {//加载数据
     try {
         return fse.readJSONSync(`${dir}/${file}`);
@@ -71,7 +75,8 @@ async function insertData(file, data) {//添加数据
         return false;
     }
 }
-function updateData(file, index, data) {
+
+function updateData(file, index, data) {//更新数据
     let tmpdata = load(file);
     if (!tmpdata) return false;
     tmpdata[index] = data;
@@ -84,6 +89,9 @@ function updateData(file, index, data) {
         return false;
     }
 }
+
+
+
 function isPlayerExists(pl) {//玩家是否存在
     let playerData = load(dataFile);
     if (playerData === null) return [null, null];
@@ -97,7 +105,7 @@ function isPlayerExists(pl) {//玩家是否存在
 
 }
 
-function isEmailExists(email) {
+function isEmailExists(email) {//邮箱是否已存在
     let tmpCode = load(CodeFile);
     if (tmpCode === null) return [null, null];
     let index = tmpCode.findIndex(item => {
@@ -139,9 +147,22 @@ class Player {
     }
 }
 
-function getNow() {
+
+
+function getNow() {//获取当前时间戳
     return new Date().getTime();
 }
+
+function randomCode(length) {//随机数
+    let code = '';
+    for (let index = 0; index < length; index++) {
+        let random = Math.floor(Math.random() * 9);
+        code += random;
+    }
+    return code;
+}
+
+//发送邮件API nodemailer
 function sendMailAPI({ host, port, user, pass, secure = false }, {
     from,
     to,
@@ -169,98 +190,111 @@ function sendMailAPI({ host, port, user, pass, secure = false }, {
             text,
             html, // html body
         }, (err, info) => {
-            //logger.warn(err, info)
             res({ err, info });
         });
     })
 
 }
 
-function randomCode(length) {
-    let code = '';
-    for (let index = 0; index < length; index++) {
-        let random = Math.floor(Math.random() * 9);
-        code += random;
-    }
-    return code;
-}
 
+
+//玩家进服
 function onJoin(pl) {
+    //加载玩家数据
     let [index, data] = isPlayerExists(pl);
     if (data === null) {
+        //加载失败
         logger.warn('用户数据加载失败');
         pl.kick("用户数据加载失败，请联系管理员处理");
         return false;
     }
     if (index === null) {
+        //玩家数据不存在，进行注册
         onRegister(pl);
     } else {
-        let player = data;
-        switch (player.state) {
+        //玩家数据存在，对玩家状态进行判断
+        let playerdata = data;
+        switch (playerdata.state) {
             case 0:
-                let email = player.email;
-                onVerifyEmail(email, pl);
+                //玩家已注册，未验证
+                onVerifyEmail(playerdata.email, pl);
                 break;
             case 1:
-                if (player.expired_at < getNow()) {
-                    onLogin(pl, data);
+                //玩家注册成功,判断登录状态
+                if (playerdata.expired_at <= getNow()) {
+                    //登录状态已过期，重新登录
+                    onLogin(pl);
                 } else {
+                    //玩家已登录，返回登录成功.
                     onCodeSucces(pl);
                 }
                 break;
             case 2:
-                onBlackList(pl);
-                break;
+            //玩家被加入黑名单
             default:
+                //其它情况,暂时同2，后续会增加其他状态
                 onBlackList(pl);
         }
-
     }
 }
 
+//玩家注册
 function onRegister(pl) {
-    let gui = mc.newCustomForm();
-    gui.setTitle('注册');
-    gui.addLabel('什么都没有');
-    gui.addInput('邮箱', "请输入邮箱");
-    gui.addInput('密码', "请输入密码");
+    //创建表单
+    let gui = getRegisterGUI()
+    //发送表单
     pl.sendForm(gui, (player, data) => {
         if (data == null) {
-            pl.kick('请输入邮箱和密码进行注册');
+            //玩家取消，踢出服务器
+            player.kick('请输入邮箱和密码进行注册');
         } else {
-            let password = md5(data[2]);
+            if (data[1].trim() === "" || data[2].trim() === "") {
+                return player.kick("邮箱或密码不能未空");
+            }
+            let password = md5(data[2]);//密码加密
             let email = data[1];
-            let tmpPlayer = new Player({
-                xuid: player.xuid,
-                uuid: player.uniqueId,
-                email,
-                password,
-                state: 0,
-                expired_at: getNow(),
-                register_ip: player.getDevice().ip,
-                register_at: getNow()
-            })
+            //检测邮箱是否已注册
             let [index, tmpdata] = isEmailExists(email);
             if (tmpdata === null) {
+                //邮箱数据加载失败
                 player.kick('数据加载失败，请联系管理员处理');
                 return false;
             }
             if (index !== null) {
+                //邮箱已注册
                 player.kick('此邮箱已被注册，请更换邮箱或联系管理员');
                 return false;
             }
             let config = isChangeConfig()
             if (!config) {
+                //检测配置文件是否已修改
                 player.kick('配置文件未加载或加载失败，前联系管理员')
                 return
             }
+            //发送邮件
             sendMail(data[1], config).then(res => {
-                logger.info(res)
+                //logger.info(res)
                 if (!res) {
+                    //邮件发送失败
                     player.kick("邮件发送失败,请检查邮箱格式或联系管理员");
                 } else {
+                    //邮件发送成功，创建玩家数据并保存
+                    let tmpPlayer = new Player({
+                        xuid: player.xuid,
+                        uuid: player.uniqueId,
+                        email,
+                        password,
+                        state: 0,
+                        expired_at: getNow(),
+                        register_ip: player.getDevice().ip,
+                        register_at: getNow()
+                    })
                     let insert = insertData(dataFile, tmpPlayer);
-                    if (insert === false) player.kick(`数据添加失败，请重新注册或联系管理员`);
+                    if (insert === false) {
+                        //数据插入失败
+                        return player.kick(`数据添加失败，请重新注册或联系管理员`);
+                    }
+                    //玩家数据保存成功，验证玩家邮箱
                     onVerifyEmail(email, player);
                 }
             }).catch(err => {
@@ -274,12 +308,14 @@ function onRegister(pl) {
 }
 
 async function sendMail(email, config) {
-
+    //获取配置项
     let { host, port, user, pass, secure, sender } = config;
     let { length, subject, msg, expire } = config.code;
+    //生成发送的内容
     let code = randomCode(length);
     let text = msg.replace("%CODE", code);
     text = text.replace("%EXPIRE", expire);
+
     let { err, info } = await sendMailAPI({ host, port, user, pass, secure }, {
         from: sender,
         to: email,
@@ -287,8 +323,10 @@ async function sendMail(email, config) {
         text
     });
     if (err === null) {
+        //邮件发送成功
         let expired_at = getNow() + expire * 1000 * 60;
         let tmp = new EmailCode(email, code, expired_at);
+        //保存邮件数据
         let [index, data] = isEmailExists(email);
         if (data === null) return false;
         if (index === null) {
@@ -296,6 +334,7 @@ async function sendMail(email, config) {
         } else {
             return updateData(CodeFile, index, tmp);
         }
+
     } else {
         logger.info('邮件发送失败');
         logger.debug(err);
@@ -321,36 +360,38 @@ function isChangeConfig() {
 }
 
 
-function onVerifyEmail(email, player) {
-    let gui = mc.newCustomForm();
-    gui.setTitle('验证邮箱');
-    gui.addInput('验证码', "请输入验证码");
-    player.sendForm(gui, (pl, data) => {
+function onVerifyEmail(email, pl) {
+    let gui = getVerifyEmailGUI()
+    pl.sendForm(gui, (player, data) => {
         if (data == null) {
-            pl.kick(`请输入验证码`);
+            //用户取消验证
+            player.kick(`请输入验证码`);
         } else {
             let [index, tmpdata] = isEmailExists(email);
             if (tmpdata === null) {
-                pl.kick("邮箱数据加载失败，请联系管理员处理");
+                player.kick("邮箱数据加载失败，请联系管理员处理");
                 return false;
             }
             if (index === null) {
-                pl.kick("邮箱不存在，请联系管理员处理");
+                player.kick("邮箱不存在，请联系管理员处理");
                 return false;
             } else {
                 if (tmpdata.expired_at < getNow() || tmpdata.state === 1) {
-                    resendMail(pl, email);
+                    //验证码已过期或已被验证过
+                    resendMail(player, email);
                     return false;
                 }
                 if (data[0] !== tmpdata.code) {
-                    onCodeError(email, pl);
+                    //验证码错误
+                    onCodeError(email, player);
                     return false;
                 } else {
+                    //验证成功，更新邮箱数据
                     tmpdata.state = 1;
                     let newemail = updateData(CodeFile, index, tmpdata);
-                    let newPlayer = updatePlayerState(pl, 1);
+                    let newPlayer = updatePlayerState(player, 1);
                     if (newPlayer && newemail) {
-                        onCodeSucces(pl);
+                        onCodeSucces(player);
                     } else {
                         logger.warn("验证数据更新失败");
                     }
@@ -361,18 +402,14 @@ function onVerifyEmail(email, player) {
 }
 
 function resendMail(pl, email) {
-    let gui = mc.newSimpleForm();
-    gui.setTitle('重新发送验证码');
-    gui.setContent('验证码已过期或已失效，请重新发送验证码');
-    gui.addButton('重新发送验证码');
+    let gui = getResendEmailGUI()
     pl.sendForm(gui, (player, id) => {
         if (id == null) {
             player.kick("请进行邮箱验证");
         } else {
             let config = isChangeConfig()
             if (!config) {
-                player.kick('配置文件未加载或加载失败，前联系管理员')
-                return
+                return player.kick('配置文件未加载或加载失败，前联系管理员')
             }
             sendMail(email, config).then(res => {
                 if (!res) {
@@ -395,7 +432,7 @@ function onCodeSucces(pl) {
     gui.setTitle('登录成功');
     gui.setContent('登录成功');
     gui.addButton('确定');
-    pl.sendForm(gui, (player, id) => { })
+    pl.sendForm(gui, (player, id) => {})
 }
 function onCodeError(email, pl) {
     let gui = mc.newSimpleForm();
@@ -427,10 +464,7 @@ function updatePlayerState(pl, state) {
 }
 
 function onLogin(pl) {
-    let gui = mc.newCustomForm();
-    gui.setTitle('登录');
-    gui.addInput('密码', "请输入密码");
-    gui.addSwitch('7天免登录', false);
+    let gui = getOnLoginGUI()
     pl.sendForm(gui, (player, data) => {
         if (data == null) {
             player.kick('请输入密码');
@@ -448,7 +482,8 @@ function onLogin(pl) {
                     player.kick('密码错误!!!若忘记密码请联系管理员');
                 } else {
                     if (data[1]) {
-                        tmpdata.expired_at = getNow() + 7 * 24 * 60 * 60 * 1000;
+                        let Week = 7 * 24 * 60 * 60 * 1000
+                        tmpdata.expired_at = getNow() + Week;
                         updateData(dataFile, index, tmpdata);
                     }
                     onCodeSucces(pl);
@@ -456,6 +491,38 @@ function onLogin(pl) {
             }
         }
     })
+}
+
+function getRegisterGUI() {
+    let gui = mc.newCustomForm();
+    gui.setTitle('注册');
+    gui.addLabel('什么都没有');
+    gui.addInput('邮箱', "请输入邮箱");
+    gui.addInput('密码', "请输入密码");
+    return gui
+}
+
+function getVerifyEmailGUI() {
+    let gui = mc.newCustomForm();
+    gui.setTitle('验证邮箱');
+    gui.addInput('验证码', "请输入验证码");
+    return gui
+}
+
+function getResendEmailGUI() {
+    let gui = mc.newSimpleForm();
+    gui.setTitle('重新发送验证码');
+    gui.setContent('验证码已过期或已失效，请重新发送验证码');
+    gui.addButton('重新发送验证码');
+    return gui
+}
+
+function getOnLoginGUI(){
+    let gui = mc.newCustomForm();
+    gui.setTitle('登录');
+    gui.addInput('密码', "请输入密码");
+    gui.addSwitch('7天免登录', false);
+    return gui
 }
 
 function onBlackList(pl) {
