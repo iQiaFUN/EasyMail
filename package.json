@@ -15,5 +15,10 @@
   "bugs": {
     "url": "https://github.com/iQiaFUN/EasyMail/issues"
   },
-  "homepage": "https://github.com/iQiaFUN/EasyMail#readme"
+  "homepage": "https://github.com/iQiaFUN/EasyMail#readme",
+  "dependencies": {
+    "fs-extra": "^11.1.0",
+    "md5": "^2.3.0",
+    "nodemailer": "^6.8.0"
+  }
 }
