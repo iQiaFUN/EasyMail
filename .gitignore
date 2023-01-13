@@ -1,3 +1,7 @@
+# Easy
+.vscode
+*.old.js
+
 # Logs
 logs
 *.log

@@ -1,0 +1,21 @@
+{
+	"transport": {
+		"host": "smtp.114514.com",
+		"port": "23333",
+		"user": "114514@114514.com",
+		"pass": "114514",
+		"secure": false
+	},
+	"code": {
+		"length": 6,
+		"expire": 30
+	},
+	"msg": {
+		"type": "text",
+		"name": "EasyLogin",
+		"sender": "114514@114514.com",
+		"subject": "MC生存服邮箱验证",
+		"html": "demo.html",
+		"text": "demo.txt"
+	}
+}
